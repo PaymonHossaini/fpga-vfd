@@ -1,0 +1,25 @@
+{
+ "Device" : "GW2AR-18C",
+ "Files" : [
+  {
+   "Path" : "C:/Gowin/Gowin_V1.9.11.01_x64/IDE/bin/Documents/fpga_2_vfd/src/gowin_osc/gowin_osc.v",
+   "Type" : "verilog"
+  },
+  {
+   "Path" : "C:/Gowin/Gowin_V1.9.11.01_x64/IDE/bin/Documents/fpga_2_vfd/src/test_write.v",
+   "Type" : "verilog"
+  },
+  {
+   "Path" : "C:/Gowin/Gowin_V1.9.11.01_x64/IDE/bin/Documents/fpga_2_vfd/src/top.v",
+   "Type" : "verilog"
+  }
+ ],
+ "IncludePath" : [
+
+ ],
+ "LoopLimit" : 2000,
+ "ResultFile" : "C:/Gowin/Gowin_V1.9.11.01_x64/IDE/bin/Documents/fpga_2_vfd/impl/temp/rtl_parser.result",
+ "Top" : "top",
+ "VerilogStd" : "verilog_2001",
+ "VhdlStd" : "vhdl_93"
+}

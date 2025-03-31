@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Module name="top" T_Register="74(0)" T_Alu="31(0)" T_Lut="101(0)">
+ <SubModule name="osc_inst"/>
+ <SubModule name="writer" Register="74" Alu="31" Lut="101" T_Register="74(74)" T_Alu="31(31)" T_Lut="101(101)"/>
+</Module>

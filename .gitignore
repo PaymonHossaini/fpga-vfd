@@ -172,3 +172,26 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+# Gowin FPGA build outputs
+impl/
+*.gprj.user
+
+# FPGA bitstream files
+*.fs
+
+# Place and route JSON files
+*_pnr.json
+
+# Other generated FPGA files
+*.json
+
+# Generated test images (optional)
+# test_pattern.png
+# test_checker.png
+
+# FPGA logs
+*.log
+
+# Backup files
+*_backup.v

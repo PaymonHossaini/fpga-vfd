@@ -1,0 +1,48 @@
+// VFD Graphics Test Pin Constraints for Tang Nano 20K
+// Based on existing vfd_parallel_interface.cst
+
+// VFD 8-bit data bus
+IO_LOC "data_bus[0]" 25;
+IO_LOC "data_bus[1]" 53;
+IO_LOC "data_bus[2]" 71;
+IO_LOC "data_bus[3]" 72;
+IO_LOC "data_bus[4]" 41;
+IO_LOC "data_bus[5]" 42;
+IO_LOC "data_bus[6]" 80;
+IO_LOC "data_bus[7]" 76;
+
+IO_PORT "data_bus[0]" IO_TYPE=LVCMOS33 DRIVE=8;
+IO_PORT "data_bus[1]" IO_TYPE=LVCMOS33 DRIVE=8;
+IO_PORT "data_bus[2]" IO_TYPE=LVCMOS33 DRIVE=8;
+IO_PORT "data_bus[3]" IO_TYPE=LVCMOS33 DRIVE=8;
+IO_PORT "data_bus[4]" IO_TYPE=LVCMOS33 DRIVE=8;
+IO_PORT "data_bus[5]" IO_TYPE=LVCMOS33 DRIVE=8;
+IO_PORT "data_bus[6]" IO_TYPE=LVCMOS33 DRIVE=8;
+IO_PORT "data_bus[7]" IO_TYPE=LVCMOS33 DRIVE=8;
+
+// WR signal (directly active low to VFD)
+IO_LOC "wr_n" 74;
+IO_PORT "wr_n" IO_TYPE=LVCMOS33 DRIVE=8;
+
+// READY signal from VFD (directly active high)
+IO_LOC "ready" 51;
+IO_PORT "ready" IO_TYPE=LVCMOS33 PULL_MODE=DOWN;
+
+// Debug LEDs
+IO_LOC "leds[0]" 15;
+IO_LOC "leds[1]" 16;
+IO_LOC "leds[2]" 17;
+IO_LOC "leds[3]" 18;
+IO_LOC "leds[4]" 19;
+IO_LOC "leds[5]" 20;
+
+IO_PORT "leds[0]" IO_TYPE=LVCMOS33 DRIVE=8;
+IO_PORT "leds[1]" IO_TYPE=LVCMOS33 DRIVE=8;
+IO_PORT "leds[2]" IO_TYPE=LVCMOS33 DRIVE=8;
+IO_PORT "leds[3]" IO_TYPE=LVCMOS33 DRIVE=8;
+IO_PORT "leds[4]" IO_TYPE=LVCMOS33 DRIVE=8;
+IO_PORT "leds[5]" IO_TYPE=LVCMOS33 DRIVE=8;
+
+// 27MHz clock input
+IO_LOC "clk" 4;
+IO_PORT "clk" IO_TYPE=LVCMOS33;

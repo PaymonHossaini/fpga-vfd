@@ -22,24 +22,25 @@ module vfd_image_display (
     localparam STATE_HDR_DELAY  = 4'd6;
     localparam STATE_HDR_NEXT   = 4'd7;
     localparam STATE_DMA_FETCH      = 4'd8;
-    localparam STATE_DMA_SETUP      = 4'd9;
-    localparam STATE_DMA_PULSE      = 4'd10;
-    localparam STATE_DMA_WAIT_LOW   = 4'd11;  // wait for READY to go LOW
-    localparam STATE_DMA_WAIT_HIGH  = 4'd12;  // wait for READY to go HIGH
-    localparam STATE_DMA_NEXT       = 4'd13;
-    localparam STATE_DONE           = 4'd14;
+    localparam STATE_DMA_ROM_WAIT   = 4'd9;   // wait for ROM to settle
+    localparam STATE_DMA_READY      = 4'd10;  // wait for READY before starting byte
+    localparam STATE_DMA_WR_LOW     = 4'd11;  // set WR low
+    localparam STATE_DMA_DATA       = 4'd12;  // put data on bus
+    localparam STATE_DMA_WR_HIGH    = 4'd13;  // set WR high (latch)
+    localparam STATE_DMA_WAIT       = 4'd14;  // wait for READY
+    localparam STATE_DMA_NEXT       = 4'd15;
+    localparam STATE_DONE           = 5'd16;
     
-    reg [3:0] state;
+    reg [4:0] state;  // Need 5 bits for 17 states
     reg [23:0] counter;
     reg [15:0] timer;
     reg [12:0] byte_idx;
     
     // 27MHz = 37ns per cycle
-    // DMA timing:
-    localparam DMA_SETUP = 16'd2;      // ~74ns (min 50ns)
-    localparam DMA_PULSE = 16'd3;      // ~111ns (min 100ns)
-    localparam DMA_HOLD  = 16'd1;      // ~37ns (min 10ns)
-    localparam DMA_WAIT  = 16'd405;    // ~15us
+    localparam DMA_SETUP = 16'd50;     // ~1.85us (was 370ns, min 50ns)
+    localparam DMA_PULSE = 16'd50;     // ~1.85us (was 555ns, min 100ns)
+    localparam DMA_HOLD  = 16'd20;     // ~370ns (was 37ns, min 10ns)
+    localparam DMA_WAIT  = 16'd810; 
     
     // Header timing
     localparam HDR_SETUP = 16'd270;
@@ -49,12 +50,13 @@ module vfd_image_display (
     localparam HDR_LONG  = 16'd54000;
     
     localparam NUM_HEADER = 13'd8;
-    localparam NUM_DATA = 13'd4096;
+    localparam NUM_DATA = 13'd4096;  // Full display size
     
     wire [12:0] rom_addr = (byte_idx >= NUM_HEADER) ? (byte_idx - NUM_HEADER) : 13'd0;
     wire [7:0] rom_data;
     
     vfd_image_rom image_rom (
+        .clk(clk),
         .addr(rom_addr),
         .data(rom_data)
     );
@@ -67,9 +69,9 @@ module vfd_image_display (
                 wr_n <= 1'b1;
                 data_bus <= 8'h00;
                 byte_idx <= 13'd0;
-                leds <= 6'b000001;
+                leds <= {ready, 5'b00001};  // LED5 shows ready signal even during init
                 timer <= 16'd0;
-                if (counter < 24'd2700000) begin
+                if (counter < 24'd27000000) begin  // 1 second startup delay
                     counter <= counter + 1;
                 end else begin
                     counter <= 24'd0;
@@ -98,16 +100,21 @@ module vfd_image_display (
             
             STATE_HDR_WAIT: begin
                 wr_n <= 1'b1;
-                leds <= 6'b000010;
-                if (ready == 1'b1) begin
+                data_bus <= 8'h00;
+                leds <= {ready, 5'b00010};  // LED5 shows ready signal state
+                // Bypass ready check - just wait fixed time
+                if (timer < 16'd27000) begin  // 1ms wait instead of ready
+                    timer <= timer + 1;
+                end else begin
                     timer <= 16'd0;
                     state <= STATE_HDR_SETUP;
                 end
             end
             
             STATE_HDR_SETUP: begin
-                data_bus <= latched_byte;
-                wr_n <= 1'b1;
+                // Step 1: Set WR LOW first (before data)
+                data_bus <= 8'h00;
+                wr_n <= 1'b0;
                 leds <= 6'b000100;
                 if (timer < HDR_SETUP) begin
                     timer <= timer + 1;
@@ -118,6 +125,7 @@ module vfd_image_display (
             end
             
             STATE_HDR_PULSE: begin
+                // Step 2: Now set data while WR is LOW
                 data_bus <= latched_byte;
                 wr_n <= 1'b0;
                 leds <= 6'b001000;
@@ -130,6 +138,7 @@ module vfd_image_display (
             end
             
             STATE_HDR_HOLD: begin
+                // Step 3: Set WR HIGH (latch on rising edge), keep data
                 data_bus <= latched_byte;
                 wr_n <= 1'b1;
                 leds <= 6'b010000;
@@ -171,62 +180,83 @@ module vfd_image_display (
             end
             
             // ========== DMA DATA ==========
-            // Sequence: FETCH -> SETUP -> PULSE -> HOLD -> WAIT -> NEXT
+            // Sequence: FETCH -> READY -> SETUP -> PULSE -> WAIT_LOW -> WAIT_HIGH -> NEXT
             
             STATE_DMA_FETCH: begin
+                // Address is updated via rom_addr wire, wait for ROM to settle
                 wr_n <= 1'b1;
                 data_bus <= 8'h00;
                 timer <= 16'd0;
-                latched_byte <= rom_data;
                 leds <= 6'b100000;
-                state <= STATE_DMA_SETUP;
+                state <= STATE_DMA_ROM_WAIT;
             end
             
-            STATE_DMA_SETUP: begin
-                // Data valid, WR high - setup time before WR falls
-                data_bus <= latched_byte;
+            STATE_DMA_ROM_WAIT: begin
+                // Give ROM time to settle on new address
                 wr_n <= 1'b1;
+                data_bus <= 8'h00;
+                if (timer < 16'd50) begin  // Wait ~1.85us for ROM to settle (was 185ns)
+                    timer <= timer + 1;
+                end else begin
+                    latched_byte <= rom_data;  // Now latch the stable data
+                    timer <= 16'd0;
+                    state <= STATE_DMA_READY;
+                end
+            end
+            
+            STATE_DMA_READY: begin
+                // Skip READY check, just use fixed timing
+                wr_n <= 1'b1;
+                data_bus <= 8'h00;
+                timer <= 16'd0;
+                state <= STATE_DMA_WR_LOW;
+            end
+            
+            STATE_DMA_WR_LOW: begin
+                // Step 1: Set WR LOW first (before data)
+                wr_n <= 1'b0;
+                data_bus <= 8'h00;
                 if (timer < DMA_SETUP) begin
                     timer <= timer + 1;
                 end else begin
                     timer <= 16'd0;
-                    state <= STATE_DMA_PULSE;
+                    state <= STATE_DMA_DATA;
                 end
             end
             
-            STATE_DMA_PULSE: begin
-                // Data valid, WR low - the actual write pulse
-                data_bus <= latched_byte;
+            STATE_DMA_DATA: begin
+                // Step 2: Now set data while WR is LOW
                 wr_n <= 1'b0;
+                data_bus <= latched_byte;
                 if (timer < DMA_PULSE) begin
                     timer <= timer + 1;
                 end else begin
                     timer <= 16'd0;
-                    wr_n <= 1'b1;  // Release WR
-                    state <= STATE_DMA_WAIT_LOW;
+                    state <= STATE_DMA_WR_HIGH;
                 end
             end
             
-            STATE_DMA_WAIT_LOW: begin
-                // Wait for READY to go LOW (VFD acknowledges byte received)
-                data_bus <= latched_byte;
+            STATE_DMA_WR_HIGH: begin
+                // Step 3: Set WR HIGH (latch on rising edge), keep data
                 wr_n <= 1'b1;
-                if (ready == 1'b0) begin
-                    // READY went low, VFD is processing
-                    state <= STATE_DMA_WAIT_HIGH;
+                data_bus <= latched_byte;
+                if (timer < DMA_HOLD) begin
+                    timer <= timer + 1;
+                end else begin
+                    timer <= 16'd0;
+                    state <= STATE_DMA_WAIT;
                 end
-                // Stay here until READY goes low
             end
             
-            STATE_DMA_WAIT_HIGH: begin
-                // Wait for READY to go HIGH (VFD ready for next byte)
-                data_bus <= latched_byte;
+            STATE_DMA_WAIT: begin
+                // Step 4: Hold time done, wait before next byte
                 wr_n <= 1'b1;
-                if (ready == 1'b1) begin
-                    // READY is high, safe to send next byte
+                data_bus <= 8'h00;
+                if (timer < DMA_WAIT) begin
+                    timer <= timer + 1;
+                end else begin
                     state <= STATE_DMA_NEXT;
                 end
-                // Stay here until READY goes high
             end
             
             STATE_DMA_NEXT: begin

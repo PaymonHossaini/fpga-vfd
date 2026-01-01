@@ -1,15 +1,15 @@
 // VFD Graphics Test Pin Constraints for Tang Nano 20K
-// Based on existing vfd_parallel_interface.cst
+// All data + WR on Bank 5 for matched timing (physical order on board)
 
-// VFD 8-bit data bus
-IO_LOC "data_bus[0]" 25;
-IO_LOC "data_bus[1]" 53;
-IO_LOC "data_bus[2]" 71;
-IO_LOC "data_bus[3]" 72;
-IO_LOC "data_bus[4]" 41;
-IO_LOC "data_bus[5]" 42;
-IO_LOC "data_bus[6]" 80;
-IO_LOC "data_bus[7]" 76;
+// VFD 8-bit data bus (Bank 5 - physical order)
+IO_LOC "data_bus[0]" 27;
+IO_LOC "data_bus[1]" 28;
+IO_LOC "data_bus[2]" 25;
+IO_LOC "data_bus[3]" 26;
+IO_LOC "data_bus[4]" 29;
+IO_LOC "data_bus[5]" 30;
+IO_LOC "data_bus[6]" 31;
+IO_LOC "data_bus[7]" 42;
 
 IO_PORT "data_bus[0]" IO_TYPE=LVCMOS33 DRIVE=8;
 IO_PORT "data_bus[1]" IO_TYPE=LVCMOS33 DRIVE=8;
@@ -20,12 +20,12 @@ IO_PORT "data_bus[5]" IO_TYPE=LVCMOS33 DRIVE=8;
 IO_PORT "data_bus[6]" IO_TYPE=LVCMOS33 DRIVE=8;
 IO_PORT "data_bus[7]" IO_TYPE=LVCMOS33 DRIVE=8;
 
-// WR signal (directly active low to VFD)
-IO_LOC "wr_n" 74;
+// WR signal (Bank 5)
+IO_LOC "wr_n" 41;
 IO_PORT "wr_n" IO_TYPE=LVCMOS33 DRIVE=8;
 
-// READY signal from VFD (directly active high)
-IO_LOC "ready" 51;
+// READY signal from VFD (Bank 3)
+IO_LOC "ready" 52;
 IO_PORT "ready" IO_TYPE=LVCMOS33 PULL_MODE=DOWN;
 
 // Debug LEDs

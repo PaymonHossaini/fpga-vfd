@@ -201,7 +201,7 @@ def atkinson_dither(pixels, width, height, threshold=128):
         for x in range(width):
             old_pixel = img[y][x]
             new_pixel = 255 if old_pixel >= threshold else 0
-            output[y][x] = 1 if new_pixel == 0 else 0  # VFD: 1=on (black pixels)
+            output[y][x] = 1 if new_pixel == 255 else 0  # 1=white/on, 0=black/off
             
             error = (old_pixel - new_pixel) / 8.0  # 1/8 of error
             
@@ -233,45 +233,95 @@ def convert_to_vfd_bytes(pixels, width, height):
     
     vfd_data = []
     
+    # Detect padding columns (all white after dithering)
+    # These are columns where all pixels are 1 (white/on)
+    def is_padding_column(x):
+        for y in range(height):
+            if pixels[y][x] != 1:  # If any pixel is not white
+                return False
+        return True
+    
     # VFD memory layout: address = x * 16 + y_byte
     for x in range(width):
+        is_padding = is_padding_column(x)
+        
         for y_byte in range(height // 8):
-            byte_val = 0
-            for bit in range(8):
-                y = y_byte * 8 + bit
-                if x < len(pixels[0]) and y < len(pixels):
-                    pixel = pixels[y][x]
+            addr = x * 16 + y_byte
+            
+            if is_padding:
+                # Alternating pattern that flips every 16 columns for easy counting
+                # Column = x, flip pattern every 16 columns
+                column_group = x // 16
+                if column_group % 2 == 0:
+                    # Even groups: 0x0F, 0xF0 alternating
+                    if addr % 2 == 0:
+                        byte_val = 0x0F  # 00001111
+                    else:
+                        byte_val = 0xF0  # 11110000
                 else:
-                    pixel = 0
-                if pixel:
-                    byte_val |= (1 << bit)
+                    # Odd groups: 0xF0, 0x0F alternating (inverted)
+                    if addr % 2 == 0:
+                        byte_val = 0xF0  # 11110000
+                    else:
+                        byte_val = 0x0F  # 00001111
+            else:
+                # TEST: Single zero bit in different positions
+                # Each group of 8 columns tests a different bit position being 0
+                # This helps identify which data line might be most sensitive
+                image_col = x - 75  # First image column is 75
+                group = (image_col // 8) % 10
+                
+                if group == 0:
+                    byte_val = 0x7F  # 01111111 - bit 7 is 0
+                elif group == 1:
+                    byte_val = 0xBF  # 10111111 - bit 6 is 0
+                elif group == 2:
+                    byte_val = 0xDF  # 11011111 - bit 5 is 0
+                elif group == 3:
+                    byte_val = 0xEF  # 11101111 - bit 4 is 0
+                elif group == 4:
+                    byte_val = 0xF7  # 11110111 - bit 3 is 0
+                elif group == 5:
+                    byte_val = 0xFB  # 11111011 - bit 2 is 0
+                elif group == 6:
+                    byte_val = 0xFD  # 11111101 - bit 1 is 0
+                elif group == 7:
+                    byte_val = 0xFE  # 11111110 - bit 0 is 0
+                elif group == 8:
+                    byte_val = 0xFF  # 11111111 - all ones (control)
+                else:
+                    byte_val = 0xF0  # 11110000 - known good (control)
+            
             vfd_data.append(byte_val)
     
     return vfd_data
 
 
 def generate_verilog_rom(vfd_data, module_name, output_file):
-    """Generate Verilog ROM module using case statement"""
+    """Generate Verilog ROM module using block RAM with inline initialization"""
     
     # Count non-zero entries
     non_zero = [(i, b) for i, b in enumerate(vfd_data) if b != 0]
     
     with open(output_file, 'w') as f:
-        f.write(f"// VFD Image ROM - Auto-generated\n")
+        f.write(f"// VFD Image ROM - Auto-generated (Block RAM with inline init)\n")
         f.write(f"// Total bytes: {len(vfd_data)}\n")
         f.write(f"// Non-zero bytes: {len(non_zero)}\n\n")
         f.write(f"module {module_name} (\n")
+        f.write(f"    input wire clk,\n")
         f.write(f"    input wire [12:0] addr,\n")
         f.write(f"    output reg [7:0] data\n")
         f.write(f");\n\n")
-        f.write(f"    always @(*) begin\n")
-        f.write(f"        case (addr)\n")
-        
-        for addr, byte_val in non_zero:
-            f.write(f"            13'd{addr}: data = 8'h{byte_val:02X};\n")
-        
-        f.write(f"            default: data = 8'h00;\n")
-        f.write(f"        endcase\n")
+        f.write(f"    // Block RAM storage\n")
+        f.write(f"    reg [7:0] mem [0:4095];\n\n")
+        f.write(f"    // Initialize memory inline\n")
+        f.write(f"    initial begin\n")
+        for i, byte_val in enumerate(vfd_data):
+            f.write(f"        mem[{i}] = 8'h{byte_val:02X};\n")
+        f.write(f"    end\n\n")
+        f.write(f"    // Synchronous read\n")
+        f.write(f"    always @(posedge clk) begin\n")
+        f.write(f"        data <= mem[addr];\n")
         f.write(f"    end\n")
         f.write(f"endmodule\n")
     
@@ -286,8 +336,9 @@ def save_preview(pixels, width, height, filename):
     img = Image.new('1', (width, height))
     for y in range(height):
         for x in range(width):
-            # pixels has 1=on (black), PIL expects 0=black
-            img.putpixel((x, y), 0 if pixels[y][x] else 1)
+            # pixels: 1=on/white, 0=off/black
+            # PIL: 0=black, 1=white
+            img.putpixel((x, y), pixels[y][x])
     
     preview_file = filename.replace('.v', '_preview.png')
     img.save(preview_file)
@@ -300,7 +351,7 @@ def save_vfd_preview(vfd_data, width, height, filename):
     This shows exactly what the VFD will display.
     
     VFD layout: address = x * 16 + y_byte
-    Each byte is 8 vertical pixels, bit 0 = top pixel
+    Each byte is 8 vertical pixels, bit 7 = top pixel, bit 0 = bottom pixel
     """
     if not HAS_PILLOW:
         print("Install Pillow for preview: pip install Pillow")
@@ -316,8 +367,8 @@ def save_vfd_preview(vfd_data, width, height, filename):
                 byte_val = vfd_data[addr]
                 for bit in range(8):
                     y = y_byte * 8 + bit
-                    # bit 0 = top pixel, 1 = pixel on (black on VFD preview)
-                    pixel_on = (byte_val >> bit) & 1
+                    # bit 7 = top pixel, bit 0 = bottom pixel, 1 = pixel on
+                    pixel_on = (byte_val >> (7 - bit)) & 1
                     # PIL: 0 = black, 1 = white
                     img.putpixel((x, y), 0 if pixel_on else 1)
     

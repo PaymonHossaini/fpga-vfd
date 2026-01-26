@@ -1,57 +1,41 @@
-// VFD Image Display via DMA Mode
-// DMA timing from 8.1.2:
-//   Data setup: 50ns min before /WR falls
-//   /WR pulse: 100ns min (low)
-//   Data hold: 10ns min after /WR rises  
-//   15us min between /WR rising and next /WR falling
+// VFD Alternating Pattern Test - 0x0F / 0xF0 without ROM
+// Should produce horizontal stripes
 
 module vfd_image_display (
     input wire clk,
     output reg [7:0] data_bus,
     output reg wr_n,
     input wire ready,
-    output reg [5:0] leds,
-    output wire uart_tx_pin
+    output reg [5:0] leds
 );
 
-    localparam STATE_INIT       = 5'd0;
-    localparam STATE_HDR_FETCH  = 5'd1;
-    localparam STATE_HDR_WAIT   = 5'd2;
-    localparam STATE_HDR_SETUP  = 5'd3;
-    localparam STATE_HDR_PULSE  = 5'd4;
-    localparam STATE_HDR_HOLD   = 5'd5;
-    localparam STATE_HDR_DELAY  = 5'd6;
-    localparam STATE_HDR_NEXT   = 5'd7;
-    localparam STATE_DMA_FETCH  = 5'd8;   // Set ROM address
-    localparam STATE_DMA_READ   = 5'd9;   // Wait for ROM data (1 cycle)
-    localparam STATE_DMA_SETTLE = 5'd10;  // Data on bus, let it settle
-    localparam STATE_DMA_SETUP  = 5'd11;  // Data stable, WR high
-    localparam STATE_DMA_PULSE  = 5'd12;  // WR low (write pulse)
-    localparam STATE_DMA_HOLD   = 5'd13;  // WR high, data hold
-    localparam STATE_DMA_WAIT   = 5'd14;  // Wait before next byte
-    localparam STATE_DMA_NEXT   = 5'd15;
-    localparam STATE_DONE       = 5'd16;
+    localparam STATE_INIT       = 4'd0;
+    localparam STATE_HDR_FETCH  = 4'd1;
+    localparam STATE_HDR_WAIT   = 4'd2;
+    localparam STATE_HDR_SETUP  = 4'd3;
+    localparam STATE_HDR_PULSE  = 4'd4;
+    localparam STATE_HDR_HOLD   = 4'd5;
+    localparam STATE_HDR_DELAY  = 4'd6;
+    localparam STATE_HDR_NEXT   = 4'd7;
+    localparam STATE_DMA_SETTLE = 4'd8;   // NEW: let bus settle
+    localparam STATE_DMA_SETUP  = 4'd9;
+    localparam STATE_DMA_PULSE  = 4'd10;
+    localparam STATE_DMA_HOLD   = 4'd11;
+    localparam STATE_DMA_WAIT   = 4'd12;
+    localparam STATE_DMA_NEXT   = 4'd13;
+    localparam STATE_DONE       = 4'd14;
     
-    reg [4:0] state;
+    reg [3:0] state;
     reg [23:0] counter;
     reg [15:0] timer;
     reg [12:0] byte_idx;
     
     // 27MHz = 37ns per cycle
-    // DMA timing from spec (8.1.2):
-    //   Data setup: 50ns min before /WR rises
-    //   /WR pulse low: 100ns min
-    //   Data hold: 10ns min after /WR rises
-    //   15us min between /WR rising and next /WR falling
-    // 
-    // WORKING VALUES (10us each): DMA_SETTLE=270, DMA_SETUP=270, DMA_PULSE=270, DMA_HOLD=270, DMA_WAIT=540
-    // KEY FIX: Data must only change while WR is LOW (not while HIGH)
-    //
-    localparam DMA_SETTLE = 16'd0;     // ~185ns WR low before data change (no spec min)
-    localparam DMA_SETUP = 16'd0;      // ~185ns data stable before WR rise (spec: 50ns min)
-    localparam DMA_PULSE = 16'd0;      // ~185ns WR high/latch period (no spec min for high)
-    localparam DMA_HOLD  = 16'd0;      // ~111ns data hold after WR rise (spec: 10ns min)
-    localparam DMA_WAIT  = 16'd0;    // ~15.5us before next WR fall (spec: 15us min)
+    localparam DMA_SETTLE = 16'd540;   // ~10us + 1 cycle bus settle after data change
+    localparam DMA_SETUP = 16'd270;    // ~10us data setup before WR
+    localparam DMA_PULSE = 16'd270;     // ~1us WR low pulse
+    localparam DMA_HOLD  = 16'd270;     // ~1us data hold
+    localparam DMA_WAIT  = 16'd540;    // ~20us between bytes
     
     // Header timing
     localparam HDR_SETUP = 16'd270;
@@ -63,30 +47,9 @@ module vfd_image_display (
     localparam NUM_HEADER = 13'd8;
     localparam NUM_DATA = 13'd4096;
     
-    // Separate ROM address register - not computed from byte_idx
-    reg [12:0] rom_addr_reg;
-    wire [7:0] rom_data;
-    
-    vfd_image_rom image_rom (
-        .clk(clk),
-        .addr(rom_addr_reg),
-        .data(rom_data)
-    );
-    
-    // UART for debugging - log each byte sent
-    reg [7:0] uart_data;
-    reg uart_start;
-    wire uart_busy;
-    
-    uart_tx uart_inst (
-        .clk(clk),
-        .data(uart_data),
-        .start(uart_start),
-        .tx(uart_tx_pin),
-        .busy(uart_busy)
-    );
-    
     reg [7:0] latched_byte;
+    reg [12:0] data_idx;
+    reg toggle;  // 0 = 0x0F, 1 = 0xF0
     
     always @(posedge clk) begin
         case (state)
@@ -94,14 +57,11 @@ module vfd_image_display (
                 wr_n <= 1'b1;
                 data_bus <= 8'h00;
                 byte_idx <= 13'd0;
-                rom_addr_reg <= 13'd0;  // Initialize ROM address
+                data_idx <= 13'd0;
                 leds <= 6'b000001;
                 timer <= 16'd0;
-                // Wait 5 seconds before starting (27MHz * 5 = 135,000,000)
-                if (counter < 24'd13500000) begin
+                if (counter < 24'd2700000) begin
                     counter <= counter + 1;
-                    // Blink LED to show waiting
-                    leds[0] <= counter[23];
                 end else begin
                     counter <= 24'd0;
                     state <= STATE_HDR_FETCH;
@@ -129,13 +89,16 @@ module vfd_image_display (
             
             STATE_HDR_WAIT: begin
                 wr_n <= 1'b1;
-                leds <= {ready, 5'b00010};  // LED5 shows ready state
-                // Bypass ready check - use fixed 1ms timeout
-                if (timer < 16'd27000) begin
-                    timer <= timer + 1;
-                end else begin
+                leds <= 6'b000010;
+                if (ready) begin
                     timer <= 16'd0;
                     state <= STATE_HDR_SETUP;
+                end else begin
+                    timer <= timer + 1;
+                    if (timer >= 16'd27000) begin
+                        timer <= 16'd0;
+                        state <= STATE_HDR_SETUP;
+                    end
                 end
             end
             
@@ -176,7 +139,6 @@ module vfd_image_display (
             end
             
             STATE_HDR_DELAY: begin
-                data_bus <= 8'h00;
                 wr_n <= 1'b1;
                 if (byte_idx == 13'd7) begin
                     if (timer < HDR_LONG) begin
@@ -200,56 +162,31 @@ module vfd_image_display (
                     state <= STATE_HDR_FETCH;
                 end else begin
                     byte_idx <= NUM_HEADER;
-                    state <= STATE_DMA_FETCH;
-                end
-            end
-            
-            // ========== DMA DATA ==========
-            // Sequence: FETCH -> READ -> SETUP -> PULSE -> HOLD -> WAIT -> NEXT
-            
-            STATE_DMA_FETCH: begin
-                // ROM address is already set via rom_addr wire
-                // Wait for block RAM to output data
-                wr_n <= 1'b1;
-                data_bus <= 8'h00;
-                timer <= 16'd0;
-                leds <= 6'b100000;
-                state <= STATE_DMA_READ;
-            end
-            
-            STATE_DMA_READ: begin
-                // Wait extra cycles for ROM data to stabilize
-                wr_n <= 1'b1;
-                uart_start <= 1'b0;
-                timer <= timer + 1;
-                if (timer >= 16'd10) begin  // ~370ns wait for ROM
-                    latched_byte <= rom_data;
-                    // Send byte over UART for debug
-                    uart_data <= rom_data;
-                    uart_start <= 1'b1;
-                    timer <= 16'd0;
+                    data_idx <= 13'd0;
+                    toggle <= 1'b0;
+                    latched_byte <= 8'h0F;  // First byte
                     state <= STATE_DMA_SETTLE;
                 end
             end
             
+            // ========== DMA DATA (alternating 0F/F0) ==========
             STATE_DMA_SETTLE: begin
-                // WR goes LOW first, keep old data
-                // Don't change data while WR is high!
-                wr_n <= 1'b0;
-                uart_start <= 1'b0;
-                if (timer < DMA_SETTLE && !uart_busy) begin
+                // Put data on bus and wait for it to settle
+                data_bus <= latched_byte;
+                wr_n <= 1'b1;
+                leds <= 6'b100000;
+                if (timer < DMA_SETTLE) begin
                     timer <= timer + 1;
-                end else if (timer >= DMA_SETTLE && !uart_busy) begin
+                end else begin
                     timer <= 16'd0;
                     state <= STATE_DMA_SETUP;
                 end
             end
             
             STATE_DMA_SETUP: begin
-                // Now safe to change data (WR is already low)
-                // Data must be stable before WR rises
+                // Data already on bus, keep waiting before WR
                 data_bus <= latched_byte;
-                wr_n <= 1'b0;
+                wr_n <= 1'b1;
                 if (timer < DMA_SETUP) begin
                     timer <= timer + 1;
                 end else begin
@@ -259,9 +196,8 @@ module vfd_image_display (
             end
             
             STATE_DMA_PULSE: begin
-                // WR goes HIGH - rising edge latches data
                 data_bus <= latched_byte;
-                wr_n <= 1'b1;
+                wr_n <= 1'b0;
                 if (timer < DMA_PULSE) begin
                     timer <= timer + 1;
                 end else begin
@@ -271,7 +207,6 @@ module vfd_image_display (
             end
             
             STATE_DMA_HOLD: begin
-                // Keep data stable after latch (hold time)
                 data_bus <= latched_byte;
                 wr_n <= 1'b1;
                 if (timer < DMA_HOLD) begin
@@ -283,7 +218,6 @@ module vfd_image_display (
             end
             
             STATE_DMA_WAIT: begin
-                // Wait 15us before next byte - keep data stable!
                 data_bus <= latched_byte;
                 wr_n <= 1'b1;
                 if (timer < DMA_WAIT) begin
@@ -296,10 +230,13 @@ module vfd_image_display (
             
             STATE_DMA_NEXT: begin
                 timer <= 16'd0;
-                if (rom_addr_reg < NUM_DATA - 1) begin
-                    rom_addr_reg <= rom_addr_reg + 1;  // Advance ROM address for next byte
+                if (data_idx < NUM_DATA - 1) begin
+                    data_idx <= data_idx + 1;
                     byte_idx <= byte_idx + 1;
-                    state <= STATE_DMA_FETCH;
+                    toggle <= ~toggle;  // Flip toggle
+                    // Next byte is opposite of current
+                    latched_byte <= toggle ? 8'h0F : 8'hF0;
+                    state <= STATE_DMA_SETTLE;
                 end else begin
                     state <= STATE_DONE;
                 end
@@ -326,13 +263,12 @@ module vfd_image_display (
         counter = 24'd0;
         timer = 16'd0;
         byte_idx = 13'd0;
-        rom_addr_reg = 13'd0;
+        data_idx = 13'd0;
+        toggle = 1'b0;
         wr_n = 1'b1;
         data_bus = 8'd0;
         leds = 6'd0;
         latched_byte = 8'd0;
-        uart_data = 8'd0;
-        uart_start = 1'b0;
     end
 
 endmodule

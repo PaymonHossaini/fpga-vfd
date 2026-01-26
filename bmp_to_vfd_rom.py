@@ -169,8 +169,8 @@ def scale_image(pixels, src_width, src_height, target_height=128, target_width=2
             row.append(int(val))
         scaled.append(row)
     
-    # Center horizontally with padding (255 = white padding, becomes 0 after dither)
-    x_offset = (target_width - new_width) // 2
+    # Left-align (padding on right) to test if glitch is position or data-stream related
+    x_offset = 0  # Was: (target_width - new_width) // 2
     y_offset = (target_height - new_height) // 2
     
     result = [[255] * target_width for _ in range(target_height)]
@@ -229,68 +229,23 @@ def atkinson_dither(pixels, width, height, threshold=128):
 
 
 def convert_to_vfd_bytes(pixels, width, height):
-    """Convert 1-bit pixel array to VFD byte format"""
+    """Convert 1-bit pixel array to VFD byte format.
+    
+    VFD expects MSB first (bit 7 = top pixel), so we build bytes that way.
+    """
     
     vfd_data = []
     
-    # Detect padding columns (all white after dithering)
-    # These are columns where all pixels are 1 (white/on)
-    def is_padding_column(x):
-        for y in range(height):
-            if pixels[y][x] != 1:  # If any pixel is not white
-                return False
-        return True
-    
     # VFD memory layout: address = x * 16 + y_byte
     for x in range(width):
-        is_padding = is_padding_column(x)
-        
         for y_byte in range(height // 8):
-            addr = x * 16 + y_byte
-            
-            if is_padding:
-                # Alternating pattern that flips every 16 columns for easy counting
-                # Column = x, flip pattern every 16 columns
-                column_group = x // 16
-                if column_group % 2 == 0:
-                    # Even groups: 0x0F, 0xF0 alternating
-                    if addr % 2 == 0:
-                        byte_val = 0x0F  # 00001111
-                    else:
-                        byte_val = 0xF0  # 11110000
-                else:
-                    # Odd groups: 0xF0, 0x0F alternating (inverted)
-                    if addr % 2 == 0:
-                        byte_val = 0xF0  # 11110000
-                    else:
-                        byte_val = 0x0F  # 00001111
-            else:
-                # TEST: Single zero bit in different positions
-                # Each group of 8 columns tests a different bit position being 0
-                # This helps identify which data line might be most sensitive
-                image_col = x - 75  # First image column is 75
-                group = (image_col // 8) % 10
-                
-                if group == 0:
-                    byte_val = 0x7F  # 01111111 - bit 7 is 0
-                elif group == 1:
-                    byte_val = 0xBF  # 10111111 - bit 6 is 0
-                elif group == 2:
-                    byte_val = 0xDF  # 11011111 - bit 5 is 0
-                elif group == 3:
-                    byte_val = 0xEF  # 11101111 - bit 4 is 0
-                elif group == 4:
-                    byte_val = 0xF7  # 11110111 - bit 3 is 0
-                elif group == 5:
-                    byte_val = 0xFB  # 11111011 - bit 2 is 0
-                elif group == 6:
-                    byte_val = 0xFD  # 11111101 - bit 1 is 0
-                elif group == 7:
-                    byte_val = 0xFE  # 11111110 - bit 0 is 0
-                elif group == 8:
-                    byte_val = 0xFF  # 11111111 - all ones (control)
-                else:
-                    byte_val = 0xF0  # 11110000 - known good (control)
+            byte_val = 0
+            for bit in range(8):
+                y = y_byte * 8 + bit
+                if pixels[y][x]:  # Pixel is on (white)
+                    # MSB first: bit 7 = top pixel (y_byte*8 + 0)
+                    # So bit position is (7 - bit)
+                    byte_val |= (1 << (7 - bit))
             
             vfd_data.append(byte_val)
     

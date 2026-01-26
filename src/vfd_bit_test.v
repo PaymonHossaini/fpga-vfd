@@ -1,15 +1,14 @@
-// Simple VFD Test - Clear and print Hello
-// Tang Nano 20K -> GU256x128C VFD
+// VFD Bit Position Test
+// Sends known patterns to determine correct bit mapping
 
-module vfd_hello (
-    input wire clk,           // 27 MHz
+module vfd_bit_test (
+    input wire clk,
     output reg [7:0] data_bus,
     output reg wr_n,
     input wire ready,
     output reg [5:0] leds
 );
 
-    // State machine
     localparam STATE_INIT      = 3'd0;
     localparam STATE_WAIT_RDY  = 3'd1;
     localparam STATE_SETUP     = 3'd2;
@@ -23,22 +22,24 @@ module vfd_hello (
     reg [7:0] wr_timer;
     reg [3:0] byte_idx;
     
-    // ESC t 0 to select ASCII, then Clear + "Hello"
-    localparam NUM_BYTES = 4'd9;
+    // Send: Clear + "0123456789"
+    localparam NUM_BYTES = 4'd11;
     
     reg [7:0] current_byte;
     
     always @(*) begin
         case (byte_idx)
-            4'd0: current_byte = 8'h1B;  // ESC
-            4'd1: current_byte = 8'h74;  // t  
-            4'd2: current_byte = 8'h00;  // 0 = PC437 ASCII
-            4'd3: current_byte = 8'h0C;  // Clear display
-            4'd4: current_byte = 8'h48;  // 'H'
-            4'd5: current_byte = 8'h65;  // 'e'
-            4'd6: current_byte = 8'h6C;  // 'l'
-            4'd7: current_byte = 8'h6C;  // 'l'
-            4'd8: current_byte = 8'h6F;  // 'o'
+            4'd0: current_byte = 8'h0C;  // Clear
+            4'd1: current_byte = 8'h30;  // '0'
+            4'd2: current_byte = 8'h31;  // '1'
+            4'd3: current_byte = 8'h32;  // '2'
+            4'd4: current_byte = 8'h33;  // '3'
+            4'd5: current_byte = 8'h34;  // '4'
+            4'd6: current_byte = 8'h35;  // '5'
+            4'd7: current_byte = 8'h36;  // '6'
+            4'd8: current_byte = 8'h37;  // '7'
+            4'd9: current_byte = 8'h38;  // '8'
+            4'd10: current_byte = 8'h39; // '9'
             default: current_byte = 8'h00;
         endcase
     end
@@ -51,7 +52,6 @@ module vfd_hello (
                 byte_idx <= 4'd0;
                 leds <= 6'b000001;
                 
-                // Wait 100ms for VFD init
                 if (counter < 24'd2700000) begin
                     counter <= counter + 1;
                 end else begin
@@ -73,7 +73,7 @@ module vfd_hello (
             end
             
             STATE_SETUP: begin
-                data_bus <= current_byte;  // Use byte as-is (no reversal)
+                data_bus <= current_byte;  // NO bit reversal
                 wr_n <= 1'b1;
                 wr_timer <= 8'd0;
                 leds <= 6'b000100;
@@ -81,7 +81,7 @@ module vfd_hello (
             end
             
             STATE_PULSE_WR: begin
-                wr_n <= 1'b0;  // Assert WR
+                wr_n <= 1'b0;
                 leds <= 6'b001000;
                 
                 if (wr_timer < 8'd20) begin
@@ -93,7 +93,7 @@ module vfd_hello (
             end
             
             STATE_HOLD: begin
-                wr_n <= 1'b1;  // Release WR
+                wr_n <= 1'b1;
                 leds <= 6'b010000;
                 
                 if (wr_timer < 8'd20) begin
@@ -115,7 +115,7 @@ module vfd_hello (
             STATE_DONE: begin
                 wr_n <= 1'b1;
                 leds[4:0] <= 5'b00000;
-                leds[5] <= counter[23];  // Blink LED5
+                leds[5] <= counter[23];
                 counter <= counter + 1;
             end
             

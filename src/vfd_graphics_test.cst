@@ -50,3 +50,7 @@ IO_PORT "clk" IO_TYPE=LVCMOS33;
 // UART TX for debug output (to USB-UART)
 IO_LOC "uart_tx_pin" 69;
 IO_PORT "uart_tx_pin" IO_TYPE=LVCMOS33 DRIVE=8;
+
+// UART RX for streaming input (from USB-UART)
+IO_LOC "uart_rx_pin" 70;
+IO_PORT "uart_rx_pin" IO_TYPE=LVCMOS33 PULL_MODE=UP;

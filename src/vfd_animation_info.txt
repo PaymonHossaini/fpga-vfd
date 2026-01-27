@@ -1,0 +1,5 @@
+frames=4
+bytes_per_frame=4096
+total_bytes=16384
+avg_duration_ms=360.0
+durations_ms=360,360,360,360
